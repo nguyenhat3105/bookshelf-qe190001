@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function owns(data) { return signedIn() && data.userId == request.auth.uid; }
+    function validBook(data, documentId) {
+      return data.keys().hasAll(['id','userId','title','author','genre','status','rating','favorite','notes','createdAt','duplicateKey'])
+        && data.keys().hasOnly(['id','userId','title','author','genre','status','rating','favorite','notes','createdAt','duplicateKey'])
+        && data.id == documentId
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.matches('.*\\S.*') && data.title.size() <= 100
+        && data.author is string && data.author.matches('.*\\S.*') && data.author.size() <= 60
+        && data.genre in ['Fiction','Non-Fiction','Academic','Other']
+        && data.status in ['To Read','Reading','Finished']
+        && (data.rating == null || (data.rating is int && data.rating >= 0 && data.rating <= 5))
+        && data.favorite is bool
+        && data.notes is string && data.notes.size() <= 300
+        && data.createdAt is timestamp
+        && data.duplicateKey is string
+        && documentId == request.auth.uid + '__' + data.duplicateKey;
+    }
+    match /books/{bookId} {
+      allow read, delete: if owns(resource.data);
+      allow create: if signedIn() && validBook(request.resource.data, bookId);
+      allow update: if owns(resource.data) && validBook(request.resource.data, bookId)
+                    && request.resource.data.userId == resource.data.userId
+                    && request.resource.data.id == resource.data.id;
+    }
+  }
+}
